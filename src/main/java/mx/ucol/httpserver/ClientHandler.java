@@ -2,6 +2,8 @@ package mx.ucol.httpserver;
 
 import java.io.*;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Scanner;
@@ -14,11 +16,11 @@ public class ClientHandler implements Runnable {
   }
 
   public void run() {
-    PrintWriter output = null;
+    DataOutputStream output = null;
     BufferedReader input = null;
 
     try {
-      output = new PrintWriter(socket.getOutputStream(), true);
+      output = new DataOutputStream(socket.getOutputStream());
       input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
       String received;
@@ -38,46 +40,38 @@ public class ClientHandler implements Runnable {
           }
 
           System.out.println("Response resource: " + path);
+          try {
+            Path filePath = Paths.get(path);
+            boolean fileExist = Files.exists(filePath, LinkOption.NOFOLLOW_LINKS);
 
-          File view = new File(path);
+            if (!fileExist)
+              filePath = Paths.get("./www/not_found.html");
 
-          if (view.exists()) {
-            Scanner reader = null;
-            String viewContent = "";
+            String response = null;
+            byte[] fileContent = null;
+            int contentLength = 0;
 
-            try {
-              reader = new Scanner(view);
-              while (reader.hasNextLine()) {
-                viewContent += reader.nextLine();
-              }
-              reader.close();
-            } catch (FileNotFoundException e) {
-              System.out.println("An error occurred, " + e.getMessage());
-            } finally {
-              if (reader != null) {
-                reader.close();
-              }
+            if (fileExist) {
+              response = "HTTP/1.1 200 OK\r\n";
+            } else {
+              response = "HTTP/1.1 404\r\n";
             }
-            // Update the htmlResponse variable with the file contents
-            String htmlResponse = viewContent;
-            int contentLength = htmlResponse.length();
+
+            fileContent = Files.readAllBytes(filePath);
+            contentLength = fileContent.length;
+            String mimeType = Files.probeContentType(filePath);
+
+            response += "ContentType: " + mimeType;
+            response += "Content-Length: " + String.valueOf((contentLength)) + "\r\n\r\n";
 
             // This line should not be modified just yet
-            output.write("HTTP/1.1 200 OK\r\nContent-Length: " +
-                    String.valueOf(contentLength) + "\r\n\r\n" + htmlResponse);
-          } else {
-            // Update the htmlResponse variable with the file contents
-            String htmlResponse = "<h1>Error 505</h1>Page not found";
-            int contentLength = htmlResponse.length();
-
-            // This line should not be modified just yet
-            output.write("HTTP/1.1 200 OK\r\nContent-Length: " +
-                    String.valueOf(contentLength) + "\r\n\r\n" + htmlResponse);
+            output.writeBytes(response);
+            output.write(fileContent, 0, contentLength);
+            // We already sent the response, break the loop
+            break;
+          } catch ( Exception e) {
+            System.err.println(e);
           }
-
-
-          // We already sent the response, break the loop
-          break;
         }
       }
 
